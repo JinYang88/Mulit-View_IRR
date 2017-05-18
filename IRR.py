@@ -9,7 +9,7 @@ from sklearn import datasets, neighbors, linear_model
 
 # zs 一个句子, [词1, 词2, 词3......]
 # xLen 期望得到的x的长度
-def IIR4x(zs, xLen, xs=[], Ws=[], IterNum=10, c=1.0, C2=1.0):
+def IIR4x(zs, xLen, xs, Ws, IterNum=10, c=1.0, C2=1.0):
     ViewNum = len(zs[0]) # View的个数
     WordLen = len(zs[0][0])  # 输入的词向量的长度
     n = len(zs)
@@ -50,7 +50,7 @@ def IIR4x(zs, xLen, xs=[], Ws=[], IterNum=10, c=1.0, C2=1.0):
     return xs
 
 
-def IIR4W(xs, zs, Ws=[], C1=1.0, c=1.0, IterNum=10):
+def IIR4W(xs, zs, Ws, C1=1.0, c=1.0, IterNum=10):
     ViewNum = len(zs[0])
     WordLen = len(zs[0][0])  # 输入的词向量的长度
     xLen = len(xs[0])
@@ -108,8 +108,8 @@ def getLoss(zs, xs, ws, c=1, C1=1.0, C2=1.0):
 
 def IIRITER(zs,C1=0.001, C2=0.001, c=1, xLen=10, IterNum=10):
 
-    xs = IIR4x(zs, xLen, C2=C2, IterNum=1, c=c)
-    ws = IIR4W(xs, zs, C1=C1, IterNum=1, c=c)
+    xs = IIR4x(zs, xLen, Ws=[], xs=[], C2=C2, IterNum=1, c=c)
+    ws = IIR4W(xs, zs, Ws=[], C1=C1, IterNum=1, c=c)
     for iter in range(IterNum-1):
         if iter % 1 == 0:
             print(getLoss(zs, xs, ws, C1=C1, C2=C2, c=c))
@@ -157,16 +157,18 @@ if __name__ == '__main__':
         'joy': 6
     }
 
-    train_data = pd.read_csv('ISEAR/train.txt')
-
-    Text_test = pd.read_csv('ISEAR/test.txt').data
-    Y_test = pd.read_csv('ISEAR/test_label.txt').label
+    dir = 'Small_ISEAR'
+    train_data = pd.read_csv(dir + '/train.txt')
+    Text_test = pd.read_csv(dir + '/test.txt').data
+    Y_test = pd.read_csv(dir + '/test_label.txt').label
     Text_train = train_data.data
     Y_train = train_data.label
-    wordlen = 2
-
     Y_train = Y_train.map(label_mapping)
     Y_test = Y_test.map(label_mapping)
+
+    wordlen = 10
+    xlen = 10
+    IterNum = 30
 
     # word2vec 特征
     save_path = 'word2vec_model/temp.w2v'
@@ -199,11 +201,15 @@ if __name__ == '__main__':
         while len(X_test[idx]) < maxlen:
             X_test[idx].append(np.zeros(wordlen))
 
-    ws_train, x_train = IIRITER(X_train, IterNum=2)
+    print('Start IIR')
+    ws_test, x_test = IIRITER(X_test, IterNum=IterNum, xLen=xlen)
     print('------------')
-    ws_test, x_test = IIRITER(X_test, IterNum=2)
+    ws_train, x_train = IIRITER(X_train, IterNum=IterNum, xLen=xlen)
 
+    x_train = np.array(x_train).reshape([len(Text_train), xlen])
+    x_test = np.array(x_test).reshape([len(Text_test), xlen])
 
-    # logistic = linear_model.LogisticRegression(multi_class='multinomial')
-    # logistic_model = logistic.fit(x_train, Y_train)
-    # logistic.score(x_test, Y_test)
+    logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
+    logistic_model = logistic.fit(x_train, Y_train)
+
+    print(logistic.score(x_test, Y_test))
