@@ -108,17 +108,18 @@ def getLoss(zs, xs, ws, c=1, C1=1.0, C2=1.0):
 
 def IIRITER(zs,C1=0.001, C2=0.001, c=1, xLen=10, IterNum=10):
 
-    xs = IIR4x(zs, xLen, Ws=[], xs=[], C2=C2, IterNum=1, c=c)
-    ws = IIR4W(xs, zs, Ws=[], C1=C1, IterNum=1, c=c)
+    xs = IIR4x(zs, xLen, Ws=[], xs=[], C2=C2, IterNum=1, c=c)  # 更新x
+    ws = IIR4W(xs, zs, Ws=[], C1=C1, IterNum=1, c=c)  # 更新w
     for iter in range(IterNum-1):
         if iter % 1 == 0:
-            print(getLoss(zs, xs, ws, C1=C1, C2=C2, c=c))
-        xs = IIR4x(zs, xLen, xs, ws, C2=C2, c=c)
-        ws = IIR4W(xs, zs, Ws=ws, C1=C1, c=c)
+            print(getLoss(zs, xs, ws, C1=C1, C2=C2, c=c))  # 输出loss
+        xs = IIR4x(zs, xLen, xs, ws, C2=C2, c=c)  # 更新x
+        ws = IIR4W(xs, zs, Ws=ws, C1=C1, c=c)  # 更新w
 
     return ws, xs
 
 
+# 将一句话转换成word2vec的首尾相接形式
 def seq2vec(model, str_):
     li = []
     str_ = re.split(' ', str_)
@@ -127,8 +128,20 @@ def seq2vec(model, str_):
     return li
 
 
+# 将一句话转换成word2vec的均值
+def seq2avg(model, str_):
+    str_ = re.split(' ', str_)
+    temp = model[str_[0]]
+    for item in str_[1:]:
+        temp += model[item]
+    for idx, item in enumerate(temp):
+        temp[idx] = item / len(str_)
+    return temp
+
+
 if __name__ == '__main__':
 
+    # 构造简单的向量测试算法正确性
     # word1 = np.array([-0.1, 0.2, 0.3, 0.4])
     # word2 = np.array([0.4, 0.3, 0.2, 0.33])
     # word3 = np.array([4, 5, 2, 1])
@@ -157,7 +170,7 @@ if __name__ == '__main__':
         'joy': 6
     }
 
-    dir = 'Small_ISEAR'
+    dir = 'Small_ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
     train_data = pd.read_csv(dir + '/train.txt')
     Text_test = pd.read_csv(dir + '/test.txt').data
     Y_test = pd.read_csv(dir + '/test_label.txt').label
@@ -172,44 +185,50 @@ if __name__ == '__main__':
 
     # word2vec 特征
     save_path = 'word2vec_model/temp.w2v'
-    if not os.path.isfile(save_path):
+    if not os.path.isfile(save_path):  # 如果没有已经有训练好的word2vec模型
         w_train = [re.split(' ', item) for item in Text_train]
         w_test = [re.split(' ', item) for item in Text_test]
         w_train += w_test
         model = gensim.models.Word2Vec(w_train, min_count=1, size=wordlen)
         model.save(save_path)
-    else:
+    else:  # 如果有模型, 就直接把模型读出来
         model = gensim.models.Word2Vec.load(save_path)
 
     X_train = []
     X_test = []
     for item in Text_train:
-        seq = seq2vec(model, item)
+        seq = seq2avg(model, item)
         X_train.append(seq)
     for item in Text_test:
-        seq = seq2vec(model, item)
+        seq = seq2avg(model, item)
         X_test.append(seq)
 
-    X_all = X_train + X_test
-    maxlen = max([len(item) for item in X_all])
+    print(X_train[0])
 
-    for idx in range(len(X_train)):
-        while len(X_train[idx]) < maxlen:
-            X_train[idx].append(np.zeros(wordlen))
-
-    for idx in range(len(X_test)):
-        while len(X_test[idx]) < maxlen:
-            X_test[idx].append(np.zeros(wordlen))
-
-    print('Start IIR')
-    ws_test, x_test = IIRITER(X_test, IterNum=IterNum, xLen=xlen)
-    print('------------')
-    ws_train, x_train = IIRITER(X_train, IterNum=IterNum, xLen=xlen)
-
-    x_train = np.array(x_train).reshape([len(Text_train), xlen])
-    x_test = np.array(x_test).reshape([len(Text_test), xlen])
-
-    logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
-    logistic_model = logistic.fit(x_train, Y_train)
-
-    print(logistic.score(x_test, Y_test))
+    # X_all = X_train + X_test
+    #
+    # # 补零的做法:
+    # maxlen = max([len(item) for item in X_all])
+    #
+    # for idx in range(len(X_train)):
+    #     while len(X_train[idx]) < maxlen:
+    #         X_train[idx].append(np.zeros(wordlen))
+    #
+    # for idx in range(len(X_test)):
+    #     while len(X_test[idx]) < maxlen:
+    #         X_test[idx].append(np.zeros(wordlen))
+    #
+    # # 开始迭代
+    # print('Start IIR')
+    # ws_test, x_test = IIRITER(X_test, IterNum=IterNum, xLen=xlen)
+    # print('------------')
+    # ws_train, x_train = IIRITER(X_train, IterNum=IterNum, xLen=xlen)
+    #
+    # # 迭代完以后就放进分类器中
+    # x_train = np.array(x_train).reshape([len(Text_train), xlen])
+    # x_test = np.array(x_test).reshape([len(Text_test), xlen])
+    #
+    # logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
+    # logistic_model = logistic.fit(x_train, Y_train)
+    #
+    # print(logistic.score(x_test, Y_test))
