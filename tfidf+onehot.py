@@ -1,18 +1,31 @@
 # coding = utf-8
 
-import gensim
 import pandas as pd
 import re
-import os
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+import time
+import pickle
+import os
 from sklearn import datasets, neighbors, linear_model
+
+def getvocabulary(text):
+    voc = []
+    for item in text:
+        for word in re.split(' ', item.strip()):
+            voc.append(word)
+    return set(voc)
+
+def getonehot(sample, voc):
+    return [1 if sample.count(item) else 0 for item in voc]
 
 # zs 一个句子, [词1, 词2, 词3......]
 # xLen 期望得到的x的长度
-def IIR4x(zs, xLen, xs, Ws, IterNum=10, c=1.0, C2=1.0):
+def IIR4x(zs, xLen, xs, Ws, IterNum=1, c=1.0, C2=1.0):
     ViewNum = len(zs[0]) # View的个数
     WordLen = len(zs[0][0])  # 输入的词向量的长度
     n = len(zs)
+    start = time.time()
 
     if xs == []:
         for i in range(n):
@@ -47,10 +60,13 @@ def IIR4x(zs, xLen, xs, Ws, IterNum=10, c=1.0, C2=1.0):
             x = np.matmul(WQW.I, WQZ).reshape([xLen, 1])
         xs[j] = x
 
+    end = time.time()
+    print('x迭代一次耗时{}s'.format(round(end - start, 2)))
+
     return xs
 
 
-def IIR4W(xs, zs, Ws, C1=1.0, c=1.0, IterNum=10):
+def IIR4W(xs, zs, Ws, C1=1.0, c=1.0, IterNum=1):
     ViewNum = len(zs[0])
     WordLen = len(zs[0][0])  # 输入的词向量的长度
     xLen = len(xs[0])
@@ -61,7 +77,9 @@ def IIR4W(xs, zs, Ws, C1=1.0, c=1.0, IterNum=10):
             Ws.append(np.random.normal(1, 0.1, WordLen * xLen).reshape(WordLen, xLen))
 
     for v in range(ViewNum):
+        start = time.time()
         for it in range(IterNum):
+            start = time.time()
             # 获得Q
             Q = []
             for i in range(n):
@@ -78,8 +96,10 @@ def IIR4W(xs, zs, Ws, C1=1.0, c=1.0, IterNum=10):
             XQX += nC1
             XQX = np.mat(XQX)
             XQX = XQX.I
-
-            Ws[v] = np.matmul(ZQX, XQX)
+            nws = np.matmul(ZQX, XQX)
+            Ws[v] = nws
+            end = time.time()
+            print('W迭代一次耗时{}s'.format(round(end - start, 2)))
 
     return Ws
 
@@ -108,56 +128,24 @@ def getLoss(zs, xs, ws, c=1, C1=1.0, C2=1.0):
 
 def IIRITER(zs,C1=0.001, C2=0.001, c=1, xLen=10, IterNum=10):
 
-    xs = IIR4x(zs, xLen, Ws=[], xs=[], C2=C2, IterNum=1, c=c)  # 更新x
-    ws = IIR4W(xs, zs, Ws=[], C1=C1, IterNum=1, c=c)  # 更新w
+    start = time.time()
+    xs = IIR4x(zs, xLen, Ws=[], xs=[], C2=C2, c=c)  # 更新x
+    ws = IIR4W(xs, zs, Ws=[], C1=C1, c=c)  # 更新w
+    end = time.time()
+    print('迭代一次耗时{}s'.format(round(end-start, 2)))
     for iter in range(IterNum-1):
-        if iter % 1 == 0:
+        if iter % 5 == 0:
             print(getLoss(zs, xs, ws, C1=C1, C2=C2, c=c))  # 输出loss
         xs = IIR4x(zs, xLen, xs, ws, C2=C2, c=c)  # 更新x
         ws = IIR4W(xs, zs, Ws=ws, C1=C1, c=c)  # 更新w
 
+
     return ws, xs
 
 
-# 将一句话转换成word2vec的首尾相接形式
-def seq2vec(model, str_):
-    li = []
-    str_ = re.split(' ', str_)
-    for item in str_:
-        li.append(model[item])
-    return li
-
-
-# 将一句话转换成word2vec的均值
-def seq2avg(model, str_):
-    str_ = re.split(' ', str_.strip())
-    temp = np.array(model[str_[0]])
-    for item in str_[1:]:
-        temp += model[item]
-    temp = temp / len(str_)
-    return temp
-
 
 if __name__ == '__main__':
-
-    # 构造简单的向量测试算法正确性
-    # word1 = np.array([-0.1, 0.2, 0.3, 0.4])
-    # word2 = np.array([0.4, 0.3, 0.2, 0.33])
-    # word3 = np.array([4, 5, 2, 1])
-    # word4 = np.array([0, 1, 4, 3])
-    # sequence = [word1, word2]
-    # sequence2 = [word3, word4]
-    # sequences = [sequence, sequence2]
-    #
-    # ws, xs = IIRITER(sequences, IterNum=10)
-
-    # for idi, xi in enumerate(xs):
-    #     for idv, wv in enumerate(ws):
-    #         print(np.matmul(wv, xi), sequences[idi][idv])
-
-    # print(x1)
-    #
-    # print(np.shape(x1))
+    all_start = time.time()
 
     label_mapping = {
         'guilt': 0,
@@ -168,68 +156,67 @@ if __name__ == '__main__':
         'fear': 5,
         'joy': 6
     }
+    label_imapping = {
+        0: 'guilt',
+        1: 'disgust',
+        2: 'sadness',
+        3: 'shame',
+        4: 'anger',
+        5: 'fear',
+        6: 'joy'
+    }
 
-    dir = 'Small_ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
-    train_data = pd.read_csv(dir + '/train.csv')
-    Text_test = pd.read_csv(dir + '/test.csv').data
-    Y_test = pd.read_csv(dir + '/test_label.csv').label
+    dir = 'AI_ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
+    train_data = pd.read_csv(dir + '/train.csv', encoding='utf-8')
+    test_data = pd.read_csv(dir + '/test.csv', encoding='utf-8')
+    Text_test = test_data.data
     Text_train = train_data.data
+    Y_test = test_data.label
     Y_train = train_data.label
+    x_len = 100
+
     Y_train = Y_train.map(label_mapping)
     Y_test = Y_test.map(label_mapping)
 
-    wordlen = 10
-    xlen = 10
-    IterNum = 30
+    Text_all = pd.concat([Text_test, Text_train])
+    voc = getvocabulary(Text_all)
+    print('词典构建结束')
+    print('词典大小为{}'.format(len(voc)))
+    print('耗时{}s'.format(round(time.time() - all_start, 2)))
 
-    # word2vec 特征
-    save_path = 'word2vec_model/temp.w2v'
-    if not os.path.isfile(save_path):  # 如果没有已经有训练好的word2vec模型
-        w_train = [re.split(' ', item) for item in Text_train]
-        w_test = [re.split(' ', item) for item in Text_test]
-        w_train += w_test
-        model = gensim.models.Word2Vec(w_train, min_count=1, size=wordlen)
-        model.save(save_path)
-    else:  # 如果有模型, 就直接把模型读出来
-        model = gensim.models.Word2Vec.load(save_path)
+    tfidf_vectorizer = TfidfVectorizer(max_df=1, min_df=1, vocabulary=voc)
+    tfidf_train = tfidf_vectorizer.fit_transform(raw_documents=Text_train)
+    tfidf_test = tfidf_vectorizer.fit_transform(raw_documents=Text_test)
+    print('TFIDF构建结束')
+    print('耗时{}s'.format(round(time.time() - all_start, 2)))
 
-    print(seq2avg(model, Text_train[0]))
+    # 构造训练集
+    x_train = []
+    x_test = []
+    for i in range(len(Text_train)):
+        x_train.append([getonehot(Text_train[i], voc), tfidf_train[i].toarray()[0]])
+    for i in range(len(Text_test)):
+        x_test.append([getonehot(Text_test[i], voc), tfidf_test[i].toarray()[0]])
+    print('组合特征结束')
+    print('耗时{}s'.format(round(time.time() - all_start, 2)))
 
-    # X_train = []
-    # X_test = []
-    # for item in Text_train:
-    #     seq = seq2avg(model, item)
-    #     X_train.append(seq)
-    # for item in Text_test:
-    #     seq = seq2avg(model, item)
-    #     X_test.append(seq)
-    #
-    # print(X_train[0])
+    if os.path.isfile('var_save/vars'):
+        ws_train, xs_train, ws_test, xs_test = pickle.load(open('var_save/vars', 'rb'))
+    else:
+        print('开始迭代')
+        ws_train, xs_train = IIRITER(x_train, IterNum=2, xLen=x_len)
+        ws_test, xs_test = IIRITER(x_test, IterNum=2, xLen=x_len)
+        print('迭代结束')
+        print('耗时{}s'.format(round(time.time() - all_start, 2)))
+        pickle.dump([ws_train, xs_train, ws_test, xs_test], open('var_save/vars', 'wb'))
 
-    # X_all = X_train + X_test
-    #
-    # # 补零的做法:
-    # maxlen = max([len(item) for item in X_all])
-    #
-    # for idx in range(len(X_train)):
-    #     while len(X_train[idx]) < maxlen:
-    #         X_train[idx].append(np.zeros(wordlen))
-    #
-    # for idx in range(len(X_test)):
-    #     while len(X_test[idx]) < maxlen:
-    #         X_test[idx].append(np.zeros(wordlen))
-    #
-    # # 开始迭代
-    # print('Start IIR')
-    # ws_test, x_test = IIRITER(X_test, IterNum=IterNum, xLen=xlen)
-    # print('------------')
-    # ws_train, x_train = IIRITER(X_train, IterNum=IterNum, xLen=xlen)
-    #
-    # # 迭代完以后就放进分类器中
-    # x_train = np.array(x_train).reshape([len(Text_train), xlen])
-    # x_test = np.array(x_test).reshape([len(Text_test), xlen])
-    #
-    # logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
-    # logistic_model = logistic.fit(x_train, Y_train)
-    #
-    # print(logistic.score(x_test, Y_test))
+    print(np.matmul(ws_test[1], xs_test[0]).reshape([1, len(voc)]))
+    print(x_test[0][1])
+
+    xs_train = np.reshape(xs_train, [len(Text_train), x_len])
+    xs_test = np.reshape(xs_test, [len(Text_test), x_len])
+
+    logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter=100)
+    logistic_model = logistic.fit(xs_train, Y_train)
+
+    print(logistic.score(xs_test, Y_test))

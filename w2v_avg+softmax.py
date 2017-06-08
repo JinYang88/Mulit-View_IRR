@@ -27,12 +27,17 @@ def seq2vec(model, str_):
 
 # 将一句话转换成word2vec的均值
 def seq2avg(model, str_):
-    str_ = re.split(' ', str_)
-    temp = model[str_[0]]
+    str_ = re.split(' ', str_.strip())
+    try:
+        temp = np.array(model[str_[0]])
+    except KeyError:
+        temp = np.random.normal(0, 0.1, 300)
     for item in str_[1:]:
-        temp += model[item]
-    for idx, item in enumerate(temp):
-        temp[idx] = item / len(str_)
+        try:
+            temp += model[item]
+        except KeyError:
+            temp += np.random.normal(0, 0.1, 300)
+    temp = temp / len(str_)
     return temp
 
 
@@ -48,23 +53,40 @@ if __name__ == '__main__':
     }
 
     dir = 'ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
-    train_data = pd.read_csv(dir + '/train.txt')
-    Text_test = pd.read_csv(dir + '/test.txt').data
-    Y_test = pd.read_csv(dir + '/test_label.txt').label
+    train_data = pd.read_csv(dir + '/train.csv', encoding='utf-8')
+    test_data = pd.read_csv(dir + '/test.csv', encoding='utf-8')
+    Text_test = test_data.data
+    Y_test = test_data.label
     Text_train = train_data.data
     Y_train = train_data.label
+
     Y_train = Y_train.map(label_mapping)
     Y_test = Y_test.map(label_mapping)
 
-    Text_all = pd.concat([Text_test, Text_train])
+    # Load Google's pre-trained Word2Vec model.
+    model = gensim.models.KeyedVectors.load_word2vec_format('./word2vec_model/GoogleNews-vectors-negative300.bin.gz',
+                                                        binary=True)
 
-    voc = getvocabulary(Text_all)
+    # Load simple self-trained Word2Vec model.
+    # save_path = 'word2vec_model/temp.w2v'
+    # if not os.path.isfile(save_path):  # 如果没有已经有训练好的word2vec模型
+    #     w_train = [re.split(' ', item) for item in Text_train]
+    #     w_test = [re.split(' ', item) for item in Text_test]
+    #     w_train += w_test
+    #     model = gensim.models.Word2Vec(w_train, min_count=1, size=300)
+    #     model.save(save_path)
+    # else:  # 如果有模型, 就直接把模型读出来
+    #     model = gensim.models.Word2Vec.load(save_path)
 
-    tfidf_vectorizer = TfidfVectorizer(max_df=1, min_df=0, vocabulary=voc)
-    tfidf_train = tfidf_vectorizer.fit_transform(raw_documents=Text_train)
-    tfidf_test = tfidf_vectorizer.fit_transform(raw_documents=Text_test)
+    X_train = []
+    for row in Text_train:
+        X_train.append(seq2avg(model, row))
+
+    X_test = []
+    for row in Text_test:
+        X_test.append(seq2avg(model, row))
 
     logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
-    logistic_model = logistic.fit(tfidf_train, Y_train)
+    logistic_model = logistic.fit(X_train, Y_train)
 
-    print(logistic.score(tfidf_test, Y_test))
+    print(logistic.score(X_test, Y_test))

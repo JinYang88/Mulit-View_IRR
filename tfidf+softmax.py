@@ -16,6 +16,9 @@ def getvocabulary(text):
             voc.append(word)
     return set(voc)
 
+def getonehot(sample, voc):
+    return [1 if sample.count(item) else 0 for item in voc]
+
 if __name__ == '__main__':
     label_mapping = {
         'guilt': 0,
@@ -27,12 +30,25 @@ if __name__ == '__main__':
         'joy': 6
     }
 
-    dir = 'ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
-    train_data = pd.read_csv(dir + '/train.txt')
-    Text_test = pd.read_csv(dir + '/test.txt').data
-    Y_test = pd.read_csv(dir + '/test_label.txt').label
+    label_imapping = {
+        0: 'guilt',
+        1: 'disgust',
+        2: 'sadness',
+        3: 'shame',
+        4: 'anger',
+        5: 'fear',
+        6: 'joy'
+    }
+
+    dir = 'AI_ISEAR'  # Small_ISEAR 是个小数据集, 用于测试程序的正确性
+    train_data = pd.read_csv(dir + '/train.csv', encoding='utf-8')
+    test_data = pd.read_csv(dir + '/test.csv', encoding='utf-8')
+    Text_test = test_data.data
     Text_train = train_data.data
+    Y_test = test_data.label
     Y_train = train_data.label
+
+
     Y_train = Y_train.map(label_mapping)
     Y_test = Y_test.map(label_mapping)
 
@@ -40,14 +56,13 @@ if __name__ == '__main__':
 
     voc = getvocabulary(Text_all)
 
-    tfidf_vectorizer = TfidfVectorizer(max_df=1, min_df=0, vocabulary=voc)
+    tfidf_vectorizer = TfidfVectorizer(max_df=1, min_df=1, vocabulary=voc)
     tfidf_train = tfidf_vectorizer.fit_transform(raw_documents=Text_train)
     tfidf_test = tfidf_vectorizer.fit_transform(raw_documents=Text_test)
 
+    logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter=10)
+    logistic_model = logistic.fit(tfidf_train, Y_train)
 
-    # print(np.append(tfidf_train[0].toarray(), np.array([1, 0, 1])))
+    # print(pd.Series(logistic_model.predict(tfidf_test)).map(label_imapping))
 
-    # logistic = linear_model.LogisticRegression(multi_class='multinomial', solver='lbfgs')
-    # logistic_model = logistic.fit(tfidf_train, Y_train)
-    #
-    # print(logistic.score(tfidf_test, Y_test))
+    print(logistic.score(tfidf_test, Y_test))
